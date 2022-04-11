@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.js" integrity="sha256-H+K7U5CnXl1h5ywQfKtSj8PCmoN9aaq30gDh27Xc0jk=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bPopup/0.11.0/jquery.bpopup.min.js" integrity="sha512-kmrY+BFhi6ywgfK8hW1ySM/KYU3xPd4elbMhORq3DhacwqmitFrf3GB2HpLj3srV1zFsqxvAcZ4qU+y+ym1Eeg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+        $(document).ready(function(n) {
+           onSave();
+        });
+
+        /* 생성 */
+        /**** 전역변수 ****/
+        let flag_obj = {'false' : {'text' : '실패', 'cls' : 'color_red'}, 'true' : {'text' : '성공', 'cls' : 'color_blue'}};
+        let process_time;
+        let current_pos, process_cnt, result_tot_cnt, result_y_cnt, result_n_cnt;
+        let result_table_height = 150;
+        let result_table_columns = [
+            {name : 'seq', data : 'seq', defaultContent : '', width : '25'},
+            {name : 'org_gb', data : 'org_gb', defaultContent : ''},
+            {name : 'sum_item_cd', data : 'sum_item_cd', defaultContent : ''},
+            {name : 'flag', data : function(row, type, val, meta) { if(type == 'display' && !!flag_obj[row.flag]) { return flag_obj[row.flag].text; } return row.flag; }, defaultContent : ''}
+        ]
+        /********/
+
+        function onSave() {
+            //결과팝업 오픈
+            $('#resultPop').bPopup({
+                modalClose: false,
+                escClose: false,
+                onOpen: function () {
+                },
+                onClose: function () {
+                    reset();
+                }
+            },
+            //오픈 후 호출
+            function() {
+                let list = [];
+                let total_count = 10;
+                for (let i = 0; i < total_count; i++) {
+                    let dto = {};
+                    dto.org_gb = 1;
+                    dto.item_cd = 'test' + i;
+                    dto.flag = true;
+                    list.push(dto);
+                }
+
+                var ii = 0;
+                insertRuleBatch()
+                    .catch((error) =>{
+                        console.log(error)
+                    })
+                    .finally(() => {
+                        //로그등록
+                        //처리시간종료
+                        //팝업닫기
+                        $('#btn_pop_ok').val('닫기');
+                    }
+                );
+
+                function insertRuleBatch() {
+                    return new Promise((resolve) => {
+                        $.ajax({
+                            url: '/test',
+                            method: 'post',
+                            data: JSON.stringify(list[ii]),
+                            contentType: 'application/json; charset=utf-8',
+                            dataType: 'json'
+                        })
+                        .done((result) => {
+                            resolve(result);
+                        });
+                    })
+                    .then((result) => {
+                       let success_count = ii+1;
+                       let fail_count = 0;
+                       progressBar(success_count, fail_count);
+
+                        if(ii < list.length-1) {
+                            ++ii;
+                            return insertRuleBatch();
+                        }
+                    })
+                }
+
+                function progressBar(success_count, fail_count) {
+                    let progress_text = parseInt(success_count / total_count * 100)+'%';
+                    $('#total_count').html(total_count);
+                    $('#success_count').html(success_count);
+                    $('#fail_count').html(fail_count);
+                    $('#progress_text').html(progress_text);
+                    $('#progress_bar').width(progress_text);
+                }
+
+            });
+        }
+
+        /**** 전역변수 ****/
+        process_time = 0;   //처리시간
+        current_pos = 0;    //현재 position
+        process_cnt = 0;    //한번에 몇 건 처리할지
+        result_tot_cnt = 0; //전체건수
+        result_y_cnt = 0;   //성공건수
+        result_n_cnt = 0;   //실패건수
+        /********/
+        /*,
+            //오픈 후 호출
+            function() {
+                //데이터행
+                let excel_data = $('#excel_table').DataTable().rows().data();
+
+                //전체건수
+                result_tot_cnt = excel_data.length;
+
+                //결과 테이블 세팅
+                let table = $('#result_table').initDataTable({height : result_table_height, columns : result_table_columns});
+
+                //처리시간 시작
+                let transTimer = setInterval(function() {
+                    $('#timer').html(getFormatSecondsString(process_time));
+                    process_time++;
+                }, 1000);
+
+                //처리기
+                process(excel_data, tab_id);
+                //에러 발생 시, 처리 종료(ajax 호출 시 error로 떨어졌거나, success인데 return 값이 오류코드인 경우)
+                .fail(function() {
+                    //처리상태 메시지 세팅
+                    let result_data = $('#result_table').DataTable().rows().data();
+                    for(let idx = current_pos; idx < result_tot_cnt; idx++) {
+                        result_data[idx].flag = 'false';
+                        result_data[idx].rst_msg = '호출실패';
+
+                        let data = result_data[idx];
+                        let rst_msg = data.rst_msg;
+                        table.row(idx).data(data).draw();
+                        $(table.cell(idx, 3).node()).attr('title', rst_msg);
+                        $(table.cell(idx, 3).node()).addClass(flag_obj[data.flag].cls);
+                    }
+
+                    //건수세팅
+                    result_n_cnt = result_n_cnt + (result_tot_cnt-current_pos);
+                    setResulTBoardInfo(result_tot_cnt, result_y_cnt, result_n_cnt);
+
+                    //프로그레스바 세팅
+                    let progress = 100;
+                    setProgressBar(progress);
+                })
+                //처리기 완전 종료 후 항상 호출
+                .always(function() {
+                    //로그등록
+                    addBatchLog();
+
+                    //처리시간 종료
+                    clearInterval(transTimer);
+
+                    //팝업닫기 호출
+                    $('#btn_pop_ok').val('닫기');
+                    $('#btn_pop_ok').removeAttr('disabled');
+                });
+            });
+        }
+
+        /* 처리기
+        function process() {
+            //한번에 몇 건 처리할지
+            let val = 1;
+            if(result_tot_cnt >= val) {
+                if((result_tot_cnt - current_pos) >= val) {
+                    process_cnt = val;
+                }
+                else {
+                    process_cnt = 1;
+                }
+            }
+
+            //process_cnt만큼 list를 보낸다
+            let list = new Array();
+            for(let i = current_pos; i < (current_pos+process_cnt); i++) {
+                let obj = new Object();
+                obj.info = excel_data[i];   //데이터행
+                if(tab_id == 'tab_normal') {
+                    obj.relList1 = setRelList(base_rel1, '1', excel_data[i]);    //제약조건1Array
+                    obj.relList2 = setRelList(base_rel2, '2', excel_data[i]);    //제약조건2Array
+                }
+                list.push(obj);
+            }
+
+            //보낼 파라메터 세팅팅
+            let params = new Object();
+            params.list = list;
+            params.tab_id = tab_id;
+            devicePixelRatio.process_cnt = process_cnt;
+
+            return $.ajax({
+               url : '${contextPath}/ruleService/insertRuleBatch.nice',
+               type : 'POST',
+               contentType : 'application/json',
+               dataType : 'json',
+               data : JSON.stringify(params)
+            })
+            .fail(function(xhr, textStatus, err) {
+                //에러 발생 시, 처리 종료
+                console.log('readyState : ' + xhr.readyState);
+                console.log('status : ' + xhr.status);
+                console.log('text status : ' + textStatus);
+                console.log('error : ' + err);
+
+                return $.Deferred().reject().promise();
+            })
+            //Add handlers to be called when the Deferred object is resolved, rejected, or still in progress
+            .then(function(result) {
+                let table = $('#result_table').DataTable();
+                let rst_code = result.rst_code;
+                let list = result.list;
+                let y_cnt = result.y_cnt;
+                let n_cnt = result.n_cnt;
+
+                //에러 발생 시, 처리 종료
+                if(result.rst_code != 0) return $.Deferred().reject().promise();
+
+                //처리 상태 메시지 세팅
+                $.each(list, function(rowIdx, item) {
+                    let idx = Number(item.seq)-1;
+                    let data = list[rowIdx];
+                    let rst_msg = data.rst_msg;
+                    $(table.cell(idx, 3).node()).attr('title', rst_msg);
+                    $(table.cell(idx, 3).node()).addClass(flag_obj[data.flag].cls);
+                });
+
+                //건수 세팅
+                result_y_cnt = result_y_cnt + Number(y_cnt);
+                result_n_cnt = result_n_cnt + Number(n_cnt);
+                setResulTBoardInfo(result_tot_cnt, result_y_cnt, result_n_cnt);
+
+                //프로그레스바 세팅
+                let progress = parseInt((Number(result_y_cnt) + Number(result_n_cnt)) / Number(result_tot_cnt) * 100);
+                setProgressBar(progress);
+
+                //position 이동
+                current_pos = current_pos+process_cnt;
+
+                //처리완료 시, 재귀 종료
+                if(current_pos == result_tot_cnt) return return $.Deferred().resolve().promise();
+
+                //재귀 호출
+                return progress(excel_data, tab_id);
+            });
+        }
+
+        /* 결과팝업 건수세팅
+        function setResulTBoardInfo(result_tot_cnt, result_y_cnt, result_n_cnt) {
+            //건수세팅
+            $('#result_tot_cnt').html(result_tot_cnt);
+            $('#result_y_cnt').html(result_y_cnt);
+            $('#result_n_cnt').html(result_n_cnt);
+        }
+
+        /* 프로그레스바 세팅
+        function setProgressBar(progress) {
+            $('#progress_bar').width(progress+'%');
+            $('#progress_bar_txt').html(progress+'%');
+        }
+
+        /* 로그등록
+        function addBatchLog() {
+            let item_gb_obj = {'tab_normal' : 1, 'tab_exception' : 4, 'tab_wrapping' : 8};
+            let work_gb_obj = {'신규' : 1, '수정' : 2};
+
+            let params = new Object();
+
+            params.item_gb = item_gb_obj[tab_id];
+            params.work_gb = work_gb_obj['신규'];
+            params.file_nm = $(document.excel_file_form.file_name).val();
+
+            params.all_sum_item_cnt = result_tot_cnt;
+            params.suc_sum_item_cnt = result_y_cnt;
+            params.fail_sum_item_cnt = result_n_cnt;
+
+            params.work_dscp = $('#work_dscp').val();
+
+            let suc_sum_item_cd_list = '';
+            let fail_sum_item_cd_list = '';
+
+            let data = $('#result_table').DataTable().rows().data();
+            $.each(data, function (idx, item) {
+               if(item.flag == true)
+                   suc_sum_item_cd_list += item.org_gb + item.sum_item_cd;
+               else if(item.flag == false)
+                   fail_sum_item_cd_list += item.org_gb + item.sum_item_cd;
+            });
+
+            //3000넘으면 자르기
+            if(suc_sum_item_cd_list.getByteLength() > 3000)
+                suc_sum_item_cd_list = suc_sum_item_cd_list.substring(0, 3000);
+            //3000넘으면 자르기
+            if(fail_sum_item_cd_list.getByteLength() > 3000)
+                fail_sum_item_cd_list = fail_sum_item_cd_list.substring(0, 3000);
+
+            params.suc_sum_item_cd_list = suc_sum_item_cd_list;
+            params.fail_sum_item_cd_list = fail_sum_item_cd_list;
+
+            $.ajax({
+                url : '${contextPath}/ruleService/insertRuleBatchLog.nice',
+                type : 'POST',
+                contentType : 'applicaiton/json',
+                dataType : 'json',
+                data : JSON.stringify(params),
+                async : false,
+                success : function(result) {
+                    console.log(result);
+                },
+                error : function(xhr, textStatus, err) {
+                    console.log('readyState : ' + xhr.readyState);
+                    console.log('status : ' + xhr.status);
+                    console.log('text status : ' + textStatus);
+                    console.log('error : ' + err);
+                }
+            });
+        }
+
+        function reset() {
+
+        }
+
+        function getFormatSecondsString() {
+
+        }*/
+    </script>
+</head>
+<body>
+<div id="resultPop" style="
+    background-color: white;
+    width: 500px;
+    height: 300px;
+    box-sizing: border-box;">
+
+    <div style="font-size: 20px;color: blue;    background-color: aliceblue;      padding: 8px 15px;  ">요약항목 일괄처리</div>
+    <div style="padding: 0 15px;">
+        <div style="overflow: hidden;padding: 8px 0px;">
+            <div style="float:left;">
+                전체 <span style="color: black;" id="total_count">0</span>건 |
+                완료 <span style="color: blue;" id="success_count">0</span>건 |
+                실패 <span style="color: red;" id="fail_count">0</span>건</div>
+            <div style="float:right;">(처리시간 00:00:00)</div>
+        </div>
+        <div style="clear:both;margin: 8px 0;background-color: darkgray;position: relative;">
+            <div style="background-color: cadetblue;width: 0%;height:25px;" id="progress_bar"></div>
+            <div style="    position: absolute;
+    left: 0;
+    top: 0;
+    text-align: center;
+    width: 100%;" id="progress_text">0%</div>
+        </div>
+        <div style="padding:8px 0;height: 120px; overflow-y: auto;">
+            <table style="    border: 1px solid;
+    width: 100%;">
+                <thead>
+                <tr>
+                    <th>번호</th>
+                    <th>구성원구분</th>
+                    <th>요약항목코드</th>
+                    <th>처리상태</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>1</td>
+                    <td>IJCHEA020</td>
+                    <td>성공</td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td>1</td>
+                    <td>IJCHEA020</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td>1</td>
+                    <td>IJCHEA020</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td>1</td>
+                    <td>IJCHEA020</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td>1</td>
+                    <td>IJCHEA020</td>
+                    <td></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+    <div style="text-align: center;margin:8px 0;">
+        <input type="button" id="btn_pop_ok" value="진행중" />
+    </div>
+
+</div>
+</body>
+</html>
